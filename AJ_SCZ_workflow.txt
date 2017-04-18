@@ -1,0 +1,231 @@
+Pre-QC for AJ_SCZ
+
+Original data:
+
+File stem: AJ_SZ_QCed_3096_06-27-12
+Array: Illumina HumanOmni1-Quad
+Genome build: b36 (hg18)
+SNP IDs: rsID
+Allele coding: A/B
+X coding: chr23
+
+Step #1: Recode alleles from A/B to actual nucleotides
+	(HumanOmni1-Quad_v1-0_B.update_alleles.txt from http://www.well.ox.ac.uk/~wrayner/strand/ABtoTOPstrand.html):
+	$ ../../plink-1.07-x86_64/plink --noweb --bfile AJ_SZ_QCed_3096_06-27-12 --update-alleles HumanOmni1-Quad_v1-0_B.update_alleles.txt --make-bed --out AJ_recode
+	--> AJ_recode.bed, .bim, .fam
+
+Step #2: Format data for input to liftOver:
+	a. Generate new non-binary files from the merged data:
+	$ ../../plink-1.07-x86_64/plink --noweb --bfile AJ_recode --recode --out AJ_recode
+	--> AJ_recode.ped, .map
+
+	b. Add 'chr' to chromosome column of .map file, add a new column with 1-based position-1,
+	and rearrange the columns into a .bed file of the correct format for liftOver:
+	$ awk '{$0="chr"$0}{print $1,($4-1),$4,$2}' AJ_recode.map > liftOver_input.bed
+	--> liftOver_input.bed
+
+	c. Change chr23 to chrX (or all X SNPs will be filtered out by liftOver):
+	$ awk '{if ($1=="chr23")sub($1,"chrX"); print $0}' liftOver_input.bed > liftOver_inputX.bed
+	--> liftOver_inputX.bed
+
+Step #3: Run liftOver:
+	$ ../liftOver liftOver_inputX.bed ../hg18ToHg19.over.chain.gz AJ_recode_hg19.bed AJ_recode_hg19_unlifted.txt
+	--> AJ_recode_hg19.bed, AJ_recode_hg19_unlifted.txt
+
+Step #4: Convert lifted .bed file back to .map file format:
+	$ awk '{print substr($1,4), $4, "0", $2}' AJ_recode_hg19.bed > AJ_recode_hg19.map
+	--> AJ_recode_hg19.map
+
+Step #5: a. Use plink to exclude all unlifted hg18 SNPs from the .ped file generated in step 2a:
+	$ ../../plink-1.07-x86_64/plink --noweb --file AJ_recode --exclude AJ_recode_hg19_unlifted.txt --recode --out AJ_recode_hg19_filtered
+	--> AJ_recode_hg19_filtered.ped, .map
+
+	b. Rename the filtered .ped file to match the hg19 .map file generated in step 4:
+	$ mv AJ_recode_hg19_filtered.ped AJ_recode_hg19.ped
+	--> AJ_recode_hg19.ped
+
+	c. Recode as binary files:	
+	$ ../../plink-1.07-x86_64/plink --noweb --file AJ_recode_hg19 --make-bed --out AJ_recode_hg19
+	--> AJ_recode_hg19.bed, .bim, .fam
+
+Step #8: Use update_build.sh to generate a new file stem with all SNPs converted to + strand; make sure plink dir is in path
+	(GenomeWide_6-b37.58-v2.strand and update_build.sh from http://www.well.ox.ac.uk/~wrayner/strand/):
+	$ ../bin/update_build.sh AJ_recode_hg19 HumanOmni1-Quad_v1-0_B-b37.strand AJ_recode_hg19_pstrand
+	--> AJ_recode_hg19_pstrand.bed, .bim, .fam
+
+Step #9: Check allele concordance using Kaixiong's check_genome_build_and_strange_alignment.pl (all metrics should be ~95%):
+	a. chr22:
+	$ perl ../bin/check_genome_build_and_strange_alignment.pl AJ_recode_hg19_pstrand.bim ../bin/reference_files/chr22.hg19.legend AJ_recode_hg19_pstrand_buildcheck_hg19_22.txt
+	--> AJ_recode_pstrand_buildcheck_hg18_22.txt
+
+	b. chrX:
+	$ perl ../bin/check_genome_build_and_strange_alignment.pl AJ_recode_hg19_pstrand.bim ../bin/reference_files/chrX.hg19.legend AJ_recode_hg19_pstrand_buildcheck_hg19_X.txt
+	--> AJ_recode_pstrand_buildcheck_hg18_X.txt
+
+Step #10: In a new subdirectory, make new parameter file with correct file stem, copy the .bed/bim/fam files produced in step 7b into it, and run XWAS QC script:
+	$ ../../bin/run_QC.sh AJ_params_qc.txt
+	--> AJ_recode_hg19_pstrand.preprocessed_final_x.*
+
+
+-----------------------------------------------------------------------------------
+
+Imputation for AJ_SCZ
+
+Step #1: Create new binary files with only chr23 to use as input for imputation:
+	$ ../../../plink-1.07-x86_64/plink --bfile AJ_recode_hg19_pstrand.preprocessed_final_x --chr 23 --make-bed --noweb --out AJ_qc1_X
+	--> AJ_qc1_X.bed, .bim, .fam
+
+Step #2: Put files needed for imputation in a new directory on the cluster:
+ 	a. On local machine:
+	$ mkdir IMPUTATION
+	$ cp AJ_qc1_X.*  ./IMPUTATION
+	$ scp -r ./IMPUTATION ajs592@cbsulogin.tc.cornell.edu:/home/ak735_0001/data/XWAS/dbGaP-2813/DAR37465_JAAMH_SCZ
+
+	b. On cluster /home/ak735_0001/data/XWAS/dbGaP-2813/DAR37465_JAAMH_SCZ/IMPUTATION:
+	$ cp /home/ak735_0001/imputation/make_imputation_files.py ./
+	$ cp /home/ak735_0001/imputation/MS_imputation.txt ./
+	$ mkdir processed
+	$ mkdir imputed
+	$ mkdir final
+
+	c. Edit configuration file (don't change REFLOC or TOOLSLOC):
+	$ emacs MS_imputation.txt
+	(ctrl X ctrl c to exit and save)
+	-->	*FILE: AJ_qc1_X
+		*OUTPUT: AJ_X_imputed
+		NJOBS: 31
+		BUILD: 19
+		FILTER: EUR.MAF<=0.005
+		*FILELOC: /home/ak735_0001/data/XWAS/dbGaP-2813/DAR37465_JAAMH_SCZ/IMPUTATION/
+		REFLOC: /home/ak735_0001/impute2_reference_files/
+		TOOLSLOC: /home/ak735_0001/imputation_tools/
+		*RESLOC1: /home/ak735_0001/data/XWAS/dbGaP-2813/DAR37465_JAAMH_SCZ/IMPUTATION/processed/
+		*RESLOC2: /home/ak735_0001/data/XWAS/dbGaP-2813/DAR37465_JAAMH_SCZ/IMPUTATION/imputed/
+		*FINALRESLOC: /home/ak735_0001/data/XWAS/dbGaP-2813/DAR37465_JAAMH_SCZ/IMPUTATION/final/
+
+Step #3: Generate shell scripts for imputation of 31 chromosome chunks (still in /home/ak735_0001/data/XWAS/dbGaP-2813/DAR37465_JAAMH_SCZ/IMPUTATION/):
+	$ python make_imputation_files.py MS_imputation.txt
+	--> Preimputation script: AJ_qc1_X_preimpute.sh
+	--> Script to do imputation for each chromosome chunk: AJ_qc1_X_impute2_run_*.sh
+	--> Script to submit all chunks to cluster: AJ_qc1_X_impute2_run_all.sh
+	--> Script to concatenate imputed chunks: AJ_qc1_X_impute2_cat.sh
+
+Step #4: Run the preimpute script (reformats the files for impute2):
+	$ qsub AJ_qc1_X_preimpute.sh
+	--> writes to IMPUTATION/processed
+
+Step #5: Run script to submit all chunks to the cluster job queue for imputation:
+	$ sh *run_all.sh
+	--> writes results to IMPUTATION/imputed and log files to IMPUTATION
+
+Step #6: Rerun any jobs that failed (e.g. job status changed to Eqw):
+	$ qsub AJ_qc1_X_impute2_run_(chunk).sh
+
+Step #7: Check the imputation output for error messages:
+	$ perl /home/ak735_0001/imputation_tools/check_step2_run_status.pl AJ_qc1_X_impute2_run.out
+	--> Prints MCMC iteration status and/or any error messages in the output files from step #5/6 (if nothing prints, no errors)
+
+Step #8: Once imputation is complete, concatenate the imputed chunks:
+	$ qsub *_cat.sh
+
+-----------------------------------------------------------------------------------
+
+Post-imputation QC for AJ_SCZ
+
+Step #1: Get imputed data off cluster and on to local machine:
+	a. Make new directory on local machine and cd into it
+	$ mkdir Imputed_data, 
+	$ cd Imputed_data
+
+	b. Copy final imputation output to local machine:
+	$ scp -r ajs592@cbsulogin.tc.cornell.edu:/home/ak735_0001/data/XWAS/dbGaP-2813/DAR37465_JAAMH_SCZ/IMPUTATION/final/AJ_X_imputed.* ./
+
+	c. Check log file for errors:
+	$ cat AJ_X_imputed.log
+
+Step #2: Make new parameter file with correct file stem (same as pre-QC parameter file) and run the post-imputation QC script:
+	$ ../../bin/xwas_qc.post_imputation.sh AJ_params_qc.txt
+	--> AJ_X_imputed_final_x.bed, .bim, .fam, .log
+
+-----------------------------------------------------------------------------------
+
+Running XWAS for AJ_SCZ
+
+Step #1: Copy final QC'd, imputed files into a new directory on the cluster:
+	a. Make new directory on local machine and cd into it
+	$ mkdir run_XWAS
+	$ cp AJ_X_imputed_final_x.*  ./run_XWAS
+	$ scp -r ./run_XWAS ajs592@cbsulogin.tc.cornell.edu:/home/ak735_0001/data/XWAS/dbGaP-2813/DAR37465_JAAMH_SCZ/
+	
+
+Step #2: On the cluster (/home/ak735_0001/data/XWAS/dbGaP-2813/DAR37465_JAAMH_SCZ/run_XWAS), run XWAS tests:
+	a. Sex-stratified (Fisher's method):
+	$ /home/ak735_0001/XWAS/bin/xwas --bfile AJ_X_imputed_final_x --xwas --strat-sex --fishers --out xwas.xstrat.logistic.fishers
+	--> xwas.xstrat.logistic.fishers_fisher_temp.txt, xwas.xstrat.logistic.fishers.log, xwas.xstrat.logistic.fishers.xstrat.logistic
+	
+	b. Sex-stratified (Stouffer's method):
+	$ /home/ak735_0001/XWAS/bin/xwas --bfile AJ_X_imputed_final_x --xwas --strat-sex --stouffers --out xwas.xstrat.logistic.stouffers
+	--> xwas.xstrat.logistic.stouffers.log, xwas.xstrat.logistic.stouffers_stouffer_temp.txt, xwas.xstrat.logistic.stouffers.xstrat.logistic
+
+	c. Combined sexes, 0/1 male coding:
+	$ /home/ak735_0001/XWAS/bin/xwas --bfile AJ_X_imputed_final_x --xchr-model 1 --linear --out xwas.assoc.logistic.male1
+	--> xwas.assoc.logistic.male1.assoc.logistic, xwas.assoc.logistic.male1.log
+
+	d. Combined sexes, 0/2 male coding:
+	$ /home/ak735_0001/XWAS/bin/xwas --bfile AJ_X_imputed_final_x --xchr-model 2 --linear --out xwas.assoc.logistic.male2
+	--> xwas.assoc.logistic.male2.assoc.logistic, xwas.assoc.logistic.male2.log
+
+	e. Females only:
+	$ /home/ak735_0001/XWAS/bin/xwas --bfile AJ_X_imputed_final_x --xchr-model 2 --linear --filter-females --out xwas.female_only
+	--> xwas.female_only.assoc.logistic, xwas.female_only.log
+
+	f. Males only (0/2 males coding):
+	$ /home/ak735_0001/XWAS/bin/xwas --bfile AJ_X_imputed_final_x --xchr-model 2 --linear --filter-males --out xwas.male_only
+	--> xwas.male_only.assoc.logistic, xwas.male_only.log
+
+
+Step #3: Copy XWAS output to local machine:
+	$ scp -r ajs592@cbsulogin.tc.cornell.edu:/home/ak735_0001/data/XWAS/dbGaP-2813/DAR37465_JAAMH_SCZ/run_XWAS/xwas.* ./
+
+Step #4: Generate QQ and manahttan plots for each association test:
+	$ Rscript ../../../qqman.R xwas.assoc.logistic.male1.assoc.logistic male01
+	
+	$ Rscript ../../../qqman.R xwas.assoc.logistic.male2.assoc.logistic male02
+	
+	$ Rscript ../../../qqman.R xwas.xstrat.logistic.fishers.xstrat.logistic sex_strat.fishers
+
+	$ Rscript ../../../qqman.R xwas.xstrat.logistic.stouffers.xstrat.logistic sex_strat.stouffers
+
+-----------------------------------------------------------------------------------
+
+Running gene-based XWAS for AJ_SCZ
+
+Step #1: Get files needed for gene based test into a new directory on local machine:
+	a. Make new directory and cd into it:
+	$ mkdir /home/ajs592/Downloads/XWAS_v1.1/AJ_SCZ/Imputed_data/run_gene_XWAS
+	$ cd run_gene_XWAS
+
+	b. Copy plink files, gene test parameter file, and p-value files into this directory:
+	$ cp /home/ajs592/Downloads/XWAS_v1.1/example/gene_automated/example_params_gene_test_auto.txt ./
+	$ cp /home/ajs592/Downloads/XWAS_v1.1/AJ_SCZ/Imputed_data/AJ_X_imputed_final_x* ./
+	$ cp /home/ajs592/Downloads/XWAS_v1.1/AJ_SCZ/Imputed_data/run_XWAS/*_temp.txt ./
+
+	c. Edit the param file:
+		filename	AJ_X_imputed_final_x
+		xwasloc	../../../bin/
+		genescriptloc	../../../bin/
+		genelistname	../../../knownCanonical.chrX.hg19.txt
+		pvfolder	./
+		buffer	15000
+	
+	--> save as params_gene_test_auto.txt
+
+Step #2: Run gene-based test:
+	$ ../../../bin/gene_based_test_automate.sh params_gene_test_auto.txt
+	--> *_gene.txt.sort
+
+
+
+
+
+
