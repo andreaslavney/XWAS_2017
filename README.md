@@ -6,3 +6,9 @@ XWAS (chromosome X-Wide Analysis toolSet) is a software suite for the analysis o
 
 The X chromosome has often been excluded from GWAS, which means that in many older data sets it was not analyzed before publication. As a result, X chromosome data sometimes requires additional preprocessing before it can be successfully be run through plink or XWAS.
 
+Notes and example code for recommended plink data pre-processing are available in the Jupyter notebook XWAS_Preprocessing.ipynb. The custom scripts and reference files used in this notebook are available in the directory custom_scripts.
+
+All materials were written by Andrea Slavney for Dr. Alon Keinan's research group at Cornell University (unless otherwise noted).
+
+(Last updated June 13, 2017)
+
