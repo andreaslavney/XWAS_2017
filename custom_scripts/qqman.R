@@ -1,3 +1,5 @@
+# Kaixiong Ye's script for generating QQ and manhattan plots from XWAS output
+
 args    <- commandArgs(trailingOnly=TRUE)
 if(is.na(args[2])){
         stop("Usage:Rscript *.R <input of p values><output basename>\n")
